@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>목화밭 감시자</title>
+<style>
+  body { max-width: 720px; margin: 0 auto; padding: 60px 20px;
+         font-family: system-ui, "Segoe UI", "Malgun Gothic", sans-serif;
+         line-height: 1.75; color: #222; }
+  h1 { margin-bottom: 4px; }
+  .sub { color: #888; margin-top: 0; }
+  .verdicts { display: flex; gap: 10px; flex-wrap: wrap; margin: 28px 0; }
+  .v { padding: 8px 14px; border-radius: 6px; font-size: 0.95rem; }
+  .t { background: #eafaf1; border-left: 4px solid #2ecc71; }
+  .f { background: #fdecea; border-left: 4px solid #e74c3c; }
+  .u { background: #fff8e1; border-left: 4px solid #f1c40f; }
+  code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }
+  ul { padding-left: 20px; }
+  footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #eee;
+           color: #888; font-size: 0.9rem; }
+  a { color: #2a6; }
+</style>
+</head>
+<body>
+
+<h1>🕵️ 목화밭 감시자</h1>
+<p class="sub">거짓말과 농땡이를 감시하는 디스코드 봇</p>
+
+<p>감시하고 싶은 메시지에 <strong>답장</strong>한 뒤 <code>/진실</code>을 입력하면,
+그 메시지에 대한 판정이 내려진다.</p>
+
+<div class="verdicts">
+  <span class="v t">🟢 진실</span>
+  <span class="v f">🔴 거짓</span>
+  <span class="v u">🟡 이게뭐노루</span>
+</div>
+
+<p><strong>판정은 AI가 생성한 오락용 결과물이며 사실 확인이 아니다.</strong>
+판정 결과를 근거로 타인을 비난해서는 안 된다.</p>
+
+<h2>문서</h2>
+<ul>
+  <li><a href="terms.html">이용약관</a></li>
+  <li><a href="privacy.html">개인정보처리방침</a></li>
+</ul>
+
+<footer>
+  문의: 디스코드 <strong>@goldbakedhobbang</strong>
+</footer>
+
+</body>
+</html>
