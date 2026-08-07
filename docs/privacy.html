@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>개인정보처리방침 · 목화밭 감시자</title>
+<style>
+  body { max-width: 720px; margin: 0 auto; padding: 40px 20px 80px;
+         font-family: system-ui, "Segoe UI", "Malgun Gothic", sans-serif;
+         line-height: 1.75; color: #222; }
+  h1 { border-bottom: 2px solid #eee; padding-bottom: 12px; }
+  h2 { margin-top: 36px; font-size: 1.15rem; }
+  .updated { color: #888; font-size: 0.9rem; }
+  .ok { background: #eafaf1; border-left: 4px solid #2ecc71;
+        padding: 14px 18px; margin: 24px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+  th, td { border: 1px solid #e5e5e5; padding: 10px 12px; text-align: left;
+           vertical-align: top; font-size: 0.95rem; }
+  th { background: #fafafa; width: 30%; }
+  footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #eee;
+           color: #888; font-size: 0.9rem; }
+  a { color: #2a6; }
+  code { background: #f4f4f4; padding: 1px 5px; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<h1>개인정보처리방침</h1>
+<p class="updated">서비스명: 목화밭 감시자 (디스코드 봇) · 최종 수정일: 2026년 8월 7일</p>
+
+<div class="ok">
+  <strong>요약: 봇은 어떤 데이터도 저장하지 않는다.</strong><br>
+  데이터베이스, 로그 파일, 대화 기록이 존재하지 않는다. 각 요청은 처리 즉시 완결되고
+  메모리에서 사라진다. 외부로 나가는 것은 판정을 생성하기 위해 AI 제공자에게 보내는
+  대상 문장 하나뿐이다.
+</div>
+
+<h2>1. 봇이 수신하는 정보</h2>
+<p>봇은 디스코드로부터 자신이 참여한 채널의 메시지를 수신한다
+(디스코드의 Message Content Intent 권한). 다만 <code>/진실</code>로 시작하지 않는 메시지는
+수신 즉시 아무 처리 없이 폐기되며, 저장·전송·분석되지 않는다.</p>
+
+<h2>2. 실제로 처리되는 정보</h2>
+<p>사용자가 어떤 메시지에 답장한 뒤 <code>/진실</code>을 입력한 경우에 한해, 아래 정보가 처리된다.</p>
+<table>
+  <tr>
+    <th>답장 원본 메시지의 텍스트</th>
+    <td>판정 대상. AI 제공자에게 전송되는 유일한 내용이다.</td>
+  </tr>
+  <tr>
+    <th>채널 ID · 메시지 ID</th>
+    <td>원본 메시지를 불러오고 응답을 올바른 위치에 게시하기 위해 사용. 전송·저장하지 않는다.</td>
+  </tr>
+</table>
+<p>이메일, 전화번호, 결제 정보, IP 주소는 수집하지 않는다. 사용자의 디스코드 비밀번호나
+계정 정보에 접근하지 않는다.</p>
+
+<h2>3. 제3자 제공</h2>
+<p>판정 생성을 위해 위 <strong>대상 문장 텍스트</strong>를 미국 소재
+<strong>Groq, Inc.</strong>의 API로 전송한다. 이것이 유일한 외부 전송이며, 국외 이전에 해당한다.
+Groq의 데이터 처리 방식은
+<a href="https://groq.com/privacy-policy/" target="_blank" rel="noopener">Groq 개인정보처리방침</a>을 참조하라.</p>
+<p>그 외 어떤 제3자에게도 정보를 제공하거나 판매하지 않는다.</p>
+
+<h2>4. 저장 및 보관 기간</h2>
+<p>저장하지 않는다. 따라서 보관 기간도 없다. 봇은 상태를 유지하지 않으며(stateless),
+이전 요청의 내용을 다음 요청에서 참조할 수 없다.</p>
+<p>다만 오류 발생 시 진단 목적으로 봇 실행 서버의 콘솔에 오류 내용이 출력될 수 있다.
+이는 프로세스 종료와 함께 사라지며 별도 파일로 영구 보관하지 않는다.</p>
+
+<h2>5. 이용자의 권리</h2>
+<p>봇이 저장하는 데이터가 없으므로 열람·정정·삭제할 대상이 존재하지 않는다.
+봇의 메시지 수신 자체를 중단하고 싶다면 서버에서 봇을 추방하면 즉시 중단된다.
+개별 판정 결과 메시지는 디스코드에서 직접 삭제할 수 있다.</p>
+
+<h2>6. 아동의 개인정보</h2>
+<p>봇은 디스코드 이용약관이 정한 최소 연령(만 13세 이상, 국가에 따라 상향) 이용자를 대상으로 한다.</p>
+
+<h2>7. 보안</h2>
+<p>봇의 인증 키는 운영자의 실행 환경에만 저장되며 코드 저장소에 포함되지 않는다.
+AI 제공자와의 통신은 HTTPS로 암호화된다.</p>
+
+<h2>8. 방침의 변경</h2>
+<p>본 방침은 이 페이지의 갱신으로 변경되며, 변경된 내용은 게시 시점부터 적용된다.</p>
+
+<footer>
+  문의: 디스코드 <strong>@goldbakedhobbang</strong><br>
+  <a href="terms.html">이용약관</a>
+</footer>
+
+</body>
+</html>
