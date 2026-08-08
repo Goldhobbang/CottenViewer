@@ -229,20 +229,30 @@ function respondToNoru(rawText) {
 }
 
 // 멘션된 유저 ID들을 순서대로 훑어서, 길드 멤버로 조회한 닉네임에
-// "노루"가 감지되는 첫 유저의 닉네임을 돌려준다. DM(길드 없음)에서는 스킵.
+// "노루"가 감지되는 첫 유저의 닉네임을 돌려준다.
+// 단, 답장(Reply)의 대상은 멘션으로 취급하지 않는다.
 async function findNoruUserMention(message) {
   if (!message.guild || message.mentions.users.size === 0) return null;
+
+  const repliedUserId = message.mentions.repliedUser?.id;
+
   for (const userId of message.mentions.users.keys()) {
+    // 답장 대상에 붙은 자동 멘션은 무시
+    if (userId === repliedUserId) continue;
+
     let member;
     try {
       // 캐시에 없을 수 있으니 ID로 다시 fetch해서 최신 닉네임을 확보한다.
       member = await message.guild.members.fetch(userId);
     } catch {
-      continue; // 서버를 나간 유저 등 조회 실패 시 스킵
+      continue;
     }
+
     const nickname = member.nickname || member.user.username;
+
     if (respondToNoru(nickname)) return nickname;
   }
+
   return null;
 }
 
