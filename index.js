@@ -133,6 +133,11 @@ function hasNoruEnglish(text) {
   return NORU_ENGLISH.some((word) => lower.includes(word));
 }
 
+// 64W466Oo 전체 문자열만 감지 (대소문자 무관).
+function hasLeetSpeak(text) {
+  return /64w466oo/i.test(text);
+}
+
 // 노루 사슴과에 속하는 한자 + 동물 이모지.
 const NORU_HANJA = ['獐', '麕', '麇', '麈', '鹿', '麋', '麂', '🦌'];
 function hasNoruHanja(text) {
@@ -160,7 +165,7 @@ function hasUnicodeConfusable(text) {
 // 우회 방식(family)이라는 뜻. 리스트 길이가 달라도 되고(10~12번은 루 쪽만
 // 있음), family는 B 조건(라틴 계열끼리는 인덱스 달라도 매칭 허용)에 쓴다.
 const NO_TOKENS = [
-  '노', 'ㄴ', 'no', 'sh', '놀', 'lh', 'shf', 'nol', '∟', 'ㄴ',
+  '노', 'ㄴ', 'no', 'sh', '놀', 'lh', 'shf', 'nol', '∟', 'ㄴ', 'L',
   new RegExp(`${letterClass('n')}ㅗ`),
 ];
 const RU_TOKENS = [
@@ -222,7 +227,7 @@ function respondToNoru(rawText) {
   const reversed = findCombo(RU_REGEXES, NO_REGEXES, text); // 루 -> 노
   if (reversed) return pick(DIRECTION_WARNING); // D: 순서 반대
 
-  if (hasNoruHanja(text) || hasNoruEnglish(text) || hasUnicodeConfusable(text)) {
+  if (hasNoruHanja(text) || hasNoruEnglish(text) || hasLeetSpeak(text) || hasUnicodeConfusable(text)) {
     return pick(SPECIAL_WARNINGS); // E: 사전 설정 우회기법
   }
   return null;
