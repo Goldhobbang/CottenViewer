@@ -418,12 +418,11 @@ client.once('clientReady', () => {
   console.log(extra > 0 ? `📖 knowledge.md 적용됨 (+${extra}자)` : '📖 knowledge.md 비어있음');
 });
 
-client.on('messageCreate', async (message) => {
+async function checkNoruAndReply(message) {
   if (message.author.bot) return;
 
   const noruReply = respondToNoru(message.content);
   if (noruReply) {
-    // 노루도 쓰고 이미 :nh: 이모지도 섞어 쓴 경우엔 전용 티어로 갈아탄다.
     const finalReply = message.content.includes(NH_EMOJI) ? pick(EMOJI_WARNING) : noruReply;
     return message.reply({ content: finalReply, allowedMentions: { repliedUser: false } });
   }
@@ -432,6 +431,11 @@ client.on('messageCreate', async (message) => {
   if (mentionHit) {
     return message.reply({ content: pick(MENTION_WARNING), allowedMentions: { repliedUser: false } });
   }
+  return null;
+}
+
+client.on('messageCreate', async (message) => {
+  if (await checkNoruAndReply(message)) return;
 
   const content = message.content.trim();
   const command = [COMMAND_DETECT, COMMAND_EXPLAIN].find((c) => content.startsWith(c));
@@ -497,6 +501,10 @@ client.on('messageCreate', async (message) => {
     const detail = error?.error?.message || error?.message || '알 수 없는 오류';
     await loadingMsg.edit(`⚠️ 감시 도중 오류가 발생했다.\n\`\`\`${detail.slice(0, 500)}\`\`\``);
   }
+});
+
+client.on('messageUpdate', async (oldMessage, newMessage) => {
+  await checkNoruAndReply(newMessage);
 });
 
 if (require.main === module) {
