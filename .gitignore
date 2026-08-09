@@ -1,5 +1,7 @@
 node_modules
 .env
+cloudflared.log
+cloudflared.out.log
 
 # 로컬 참고용 저장 페이지 (개인 이메일 포함 — 공개 레포에 올리지 않음)
 TAPIE 웹 패널.html
