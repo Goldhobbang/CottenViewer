@@ -32,6 +32,8 @@ if (-not $ollamaUp) {
 Write-Host "Ollama 서버 정상 동작 중 (포트 $OllamaPort)"
 
 # 2. Cloudflare Quick Tunnel 실행, 로그로 URL 추출
+Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Milliseconds 500
 if (Test-Path $LogPath) { Remove-Item $LogPath -Force }
 $OutLogPath = Join-Path $RepoRoot "cloudflared.out.log"
 Start-Process -FilePath "cloudflared" `
