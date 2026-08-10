@@ -367,6 +367,10 @@ const openai = new OpenAI({
   timeout: 10_000, // ngrok 터널 끊겨도 10초 넘게 안 붙잡음
 });
 
+process.on('unhandledRejection', (error) => {
+  console.error('처리되지 않은 Promise 거부 (프로세스는 계속 실행됨):', error);
+});
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
