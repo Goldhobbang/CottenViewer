@@ -4,6 +4,10 @@ const path = require('path');
 const { Client, GatewayIntentBits, Partials } = require('discord.js');
 const OpenAI = require('openai');
 
+// 이 채널에서는 모든 봇 메시지를 작은 글씨(subtext)로 보낸다.
+const SUBTEXT_CHANNELS = new Set(['1422060461809209364']);
+const sub = (channelId, content) => (SUBTEXT_CHANNELS.has(channelId) ? '-# ' + content : content);
+
 const COMMAND_DETECT = '/ㄱㅌ'; // 판정만, 한줄평 없음
 const COMMAND_EXPLAIN = '/ㅅㅁ'; // 판정 없이 한줄평(설명)만
 
@@ -433,12 +437,18 @@ async function checkNoruAndReply(message) {
   const noruReply = respondToNoru(message.content);
   if (noruReply) {
     const finalReply = message.content.includes(NH_EMOJI) ? pick(EMOJI_WARNING) : noruReply;
-    return message.reply({ content: finalReply, allowedMentions: { repliedUser: false } });
+    return message.reply({
+      content: sub(message.channel.id, finalReply),
+      allowedMentions: { repliedUser: false },
+    });
   }
 
   const mentionHit = await findNoruMention(message);
   if (mentionHit) {
-    return message.reply({ content: pick(MENTION_WARNING), allowedMentions: { repliedUser: false } });
+    return message.reply({
+      content: sub(message.channel.id, pick(MENTION_WARNING)),
+      allowedMentions: { repliedUser: false },
+    });
   }
   return null;
 }
@@ -458,14 +468,16 @@ client.on('messageCreate', async (message) => {
     target = await resolveTarget(message, command);
   } catch (error) {
     console.error(error);
-    return message.reply('⚠️ 원본 메시지를 불러오지 못했다.');
+    return message.reply(sub(message.channel.id, '⚠️ 원본 메시지를 불러오지 못했다.'));
   }
 
   if (!target) {
-    return message.reply(`# 판정할 메시지에 답장하고 \`${command}\` 쳐라.`);
+    return message.reply(
+      sub(message.channel.id, `# 판정할 메시지에 답장하고 \`${command}\` 쳐라.`)
+    );
   }
 
-  const loadingMsg = await message.reply('# 생각 중...');
+  const loadingMsg = await message.reply(sub(message.channel.id, '# 생각 중...'));
 
   try {
     // 한자가 섞이면 한 번만 다시 뽑는다. 정상 응답이면 추가 비용은 없다.
@@ -488,7 +500,9 @@ client.on('messageCreate', async (message) => {
       console.warn(`한자 혼입 감지, 재시도 ${attempt + 1}/2: ${data?.comment}`);
     }
 
-    await loadingMsg.edit(buildReply(target, data, { withVerdict, withComment }));
+    await loadingMsg.edit(
+      sub(message.channel.id, buildReply(target, data, { withVerdict, withComment }))
+    );
   } catch (error) {
     console.error(error);
     const isConnDown =
@@ -497,18 +511,25 @@ client.on('messageCreate', async (message) => {
       error?.code === 'ETIMEDOUT' ||
       error?.name === 'APIConnectionTimeoutError';
     if (isConnDown) {
-      await loadingMsg.edit('⚠️ 현재 AI 모델 서버(로컬 PC)가 꺼져있어 응답할 수 없습니다.');
+      await loadingMsg.edit(
+        sub(message.channel.id, '⚠️ 현재 AI 모델 서버(로컬 PC)가 꺼져있어 응답할 수 없습니다.')
+      );
       return;
     }
     if (error?.status === 429) {
       const wait = /try again in ([\d.]+)s/.exec(error?.error?.message)?.[1];
       await loadingMsg.edit(
-        `⏳ 감시자가 과로 중이다. ${wait ? `${Math.ceil(wait)}초` : '잠시'} 뒤 다시 요청하라.`
+        sub(
+          message.channel.id,
+          `⏳ 감시자가 과로 중이다. ${wait ? `${Math.ceil(wait)}초` : '잠시'} 뒤 다시 요청하라.`
+        )
       );
       return;
     }
     const detail = error?.error?.message || error?.message || '알 수 없는 오류';
-    await loadingMsg.edit(`⚠️ 감시 도중 오류가 발생했다.\n\`\`\`${detail.slice(0, 500)}\`\`\``);
+    await loadingMsg.edit(
+      sub(message.channel.id, `⚠️ 감시 도중 오류가 발생했다.\n\`\`\`${detail.slice(0, 500)}\`\`\``)
+    );
   }
 });
 
