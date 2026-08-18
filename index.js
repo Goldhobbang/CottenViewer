@@ -173,7 +173,7 @@ const NO_TOKENS = [
   new RegExp(`${letterClass('n')}ㅗ`),
 ];
 const RU_TOKENS = [
-  '루', 'ㄹ', 'ru', 'fn', '후', '루', 'gn', 'hu', 'ㄹ', '2',
+  '루', 'ㄹ', 'ru', 'fn', '후', '루', 'gn', 'hu', 'ㄹ', '乙', '己',
   new RegExp(`${letterClass('r')}ㅜ`),
   new RegExp(`${letterClass('r')}${letterClass('o')}ㅜ`),
   new RegExp(`${letterClass('r')}${letterClass('u')}ㅜ`),
