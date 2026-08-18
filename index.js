@@ -213,9 +213,23 @@ function stripUrls(text) {
   return text.replace(URL_REGEX, '');
 }
 
+// 조합형(첫가끝) 한글 우회 차단.
+// "노루"를 ᄂ+ᅩ+ᄅ+ᅮ(U+1102...)로 쪼개 쓰면 '노'/'루' 리터럴에 안 걸린다.
+// NFC로 완성형으로 합치고, 합쳐지지 않고 남은 낱자는 기존 토큰이 쓰는
+// 호환 자모(ㄴ, ㅗ)로 옮겨서 같은 규칙에 걸리게 한다.
+const JAMO_LEAD = 'ᄀᄁᄂᄃᄄᄅᄆᄇᄈᄉᄊᄋᄌᄍᄎᄏᄐᄑᄒ';
+const COMPAT_LEAD = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
+function normalizeJamo(text) {
+  return (text || '')
+    .normalize('NFC')
+    .replace(/[ᄀ-ᄒ]/g, (c) => COMPAT_LEAD[JAMO_LEAD.indexOf(c)] ?? c)
+    // 중성 ᅡ~ᅵ(U+1161~U+1175)는 호환 자모 ㅏ~ㅣ(U+314F~U+3163)와 순서가 같다.
+    .replace(/[ᅡ-ᅵ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x1161 + 0x314f));
+}
+
 // A~E 분기(if/elif). 매칭되면 응답 문자열을, 안 되면 null을 돌려준다.
 function respondToNoru(rawText) {
-  const text = stripUrls(rawText);
+  const text = normalizeJamo(stripUrls(rawText));
   if (hasNohyunwoo(text)) return pick(NAME_WARNING);
 
   const forward = findCombo(NO_REGEXES, RU_REGEXES, text); // 노 -> 루
