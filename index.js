@@ -10,6 +10,8 @@ const sub = (channelId, content) => (SUBTEXT_CHANNELS.has(channelId) ? '-# ' + c
 
 const COMMAND_DETECT = '/ㄱㅌ'; // 판정만, 한줄평 없음
 const COMMAND_EXPLAIN = '/ㅅㅁ'; // 판정 없이 한줄평(설명)만
+const COMMAND_SCHEDULE = '/특검'; // 지정 시각에 메시지 예약 발송
+const SCHEDULE_FILE = path.join(__dirname, 'schedules.json');
 
 // "노루" 감지 시 판정 로직 없이 아래 5개 티어 중 하나로만 응답한다.
 // 각 티어가 언제 나가는지는 respondToNoru()의 A~E 분기 참고.
@@ -439,10 +441,101 @@ async function resolveTarget(message, prefix) {
   return inline;
 }
 
+// --- 예약 발송 (/특검) ---
+
+const SCHEDULE_USAGE = `\`${COMMAND_SCHEDULE} 2026-08-25 14:30 보낼 내용\` 형식으로 써라.`;
+const SCHEDULE_REGEX = /^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})\s+([\s\S]+)$/;
+
+// 명령어 뒤 인자를 파싱한다. 성공하면 { at, content }, 실패하면 { error }.
+// 시각은 봇이 도는 PC의 로컬 시간대 기준. 문자열 파싱(new Date("..."))은
+// 엔진마다 타임존 해석이 달라서 쓰지 않는다.
+function parseSchedule(raw) {
+  const m = SCHEDULE_REGEX.exec((raw || '').trim());
+  if (!m) return { error: `⚠️ 날짜·시각·내용을 못 알아먹겠다. ${SCHEDULE_USAGE}` };
+
+  const [, y, mo, d, hh, mm] = m.map(Number);
+  const content = m[6].trim();
+  if (!content) return { error: `⚠️ 보낼 내용이 없다. ${SCHEDULE_USAGE}` };
+
+  const date = new Date(y, mo - 1, d, hh, mm, 0, 0);
+  // 2026-02-31처럼 없는 날짜는 Date가 다음 달로 넘겨버린다. 되돌아온 값으로 검증.
+  const rolled =
+    date.getFullYear() !== y ||
+    date.getMonth() !== mo - 1 ||
+    date.getDate() !== d ||
+    date.getHours() !== hh ||
+    date.getMinutes() !== mm;
+  if (Number.isNaN(date.getTime()) || rolled) {
+    return { error: '⚠️ 세상에 없는 날짜다. 달력 좀 보고 와라.' };
+  }
+  if (date.getTime() <= Date.now()) {
+    return { error: '⚠️ 과거로는 못 보낸다. 타임머신 구해오면 해주지.' };
+  }
+  return { at: date.getTime(), content };
+}
+
+let schedules = []; // { id, channelId, at, content }
+
+function saveSchedules() {
+  try {
+    fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(schedules));
+  } catch (error) {
+    console.error('예약 저장 실패:', error);
+  }
+}
+
+function dropSchedule(job) {
+  schedules = schedules.filter((s) => s.id !== job.id);
+  saveSchedules();
+}
+
+async function fireSchedule(job) {
+  try {
+    const channel = await client.channels.fetch(job.channelId);
+    // allowedMentions 비움: 멘션 권한 없는 유저가 봇을 시켜 @everyone을
+    // 울리는 걸 막는다. 텍스트는 그대로 보이고 핑만 안 간다.
+    await channel.send({
+      content: sub(job.channelId, job.content),
+      allowedMentions: { parse: [] },
+    });
+  } catch (error) {
+    console.error(`예약 발송 실패 (채널 ${job.channelId}):`, error);
+  } finally {
+    dropSchedule(job);
+  }
+}
+
+const MAX_TIMEOUT = 2_147_483_647; // setTimeout 상한(~24.8일). 넘으면 쪼개서 다시 건다.
+function armSchedule(job) {
+  const delay = job.at - Date.now();
+  if (delay > MAX_TIMEOUT) return setTimeout(() => armSchedule(job), MAX_TIMEOUT);
+  return setTimeout(() => fireSchedule(job), Math.max(0, delay));
+}
+
+// 봇이 꺼져 있던 동안 지난 예약은 버린다. 며칠 만에 켰을 때 옛 메시지가
+// 쏟아지는 걸 막는다.
+function restoreSchedules() {
+  let saved = [];
+  try {
+    if (fs.existsSync(SCHEDULE_FILE)) saved = JSON.parse(fs.readFileSync(SCHEDULE_FILE, 'utf8'));
+  } catch (error) {
+    console.error('예약 파일을 읽지 못했다. 빈 목록으로 시작한다:', error);
+  }
+  if (!Array.isArray(saved)) saved = [];
+
+  const now = Date.now();
+  const expired = saved.filter((s) => s.at <= now).length;
+  schedules = saved.filter((s) => s.at > now);
+  saveSchedules();
+  schedules.forEach(armSchedule);
+  console.log(`⏰ 예약 ${schedules.length}건 복원${expired ? `, 지난 ${expired}건 폐기` : ''}`);
+}
+
 client.once('clientReady', () => {
   const extra = ACTIVE_PROMPT.length - SYSTEM_PROMPT.length;
   console.log(`🤖 ${client.user.tag} - 목화밭 감시 준비 완료!`);
   console.log(extra > 0 ? `📖 knowledge.md 적용됨 (+${extra}자)` : '📖 knowledge.md 비어있음');
+  restoreSchedules();
 });
 
 async function checkNoruAndReply(message) {
@@ -471,6 +564,25 @@ client.on('messageCreate', async (message) => {
   if (await checkNoruAndReply(message)) return;
 
   const content = message.content.trim();
+
+  if (content.startsWith(COMMAND_SCHEDULE)) {
+    const parsed = parseSchedule(content.slice(COMMAND_SCHEDULE.length));
+    if (parsed.error) return message.reply(sub(message.channel.id, parsed.error));
+
+    const job = {
+      id: message.id,
+      channelId: message.channel.id,
+      at: parsed.at,
+      content: parsed.content,
+    };
+    schedules.push(job);
+    saveSchedules();
+    armSchedule(job);
+    return message.reply(
+      sub(message.channel.id, `✅ <t:${Math.floor(job.at / 1000)}:f>에 보낸다.`)
+    );
+  }
+
   const command = [COMMAND_DETECT, COMMAND_EXPLAIN].find((c) => content.startsWith(c));
   if (!command) return;
   const isExplain = command === COMMAND_EXPLAIN;
@@ -565,6 +677,8 @@ module.exports = {
   MODEL,
   COMMAND_DETECT,
   COMMAND_EXPLAIN,
+  COMMAND_SCHEDULE,
+  parseSchedule,
   respondToNoru,
   findNoruMention,
   findNoruUserMention,

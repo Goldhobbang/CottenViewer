@@ -7,6 +7,7 @@ const {
   loadKnowledge,
   SYSTEM_PROMPT,
   ACTIVE_PROMPT,
+  parseSchedule,
 } = require('./index');
 
 const T = '숙제 다 했어';
@@ -91,5 +92,36 @@ assert.strictEqual(
 // 응답 자체가 비정상이어도 문자열을 돌려준다
 assert.ok(buildReply(T, null).includes('이게뭐노루'));
 assert.ok(buildReply(T, {}).includes('이게뭐노루'));
+
+// --- /특검 예약 파싱 ---
+
+// 미래 시각(1년 뒤)을 만들어 정상 케이스로 쓴다. 하드코딩하면 언젠가 과거가 된다.
+const future = new Date();
+future.setFullYear(future.getFullYear() + 1);
+const Y = future.getFullYear();
+
+const ok1 = parseSchedule(` ${Y}-08-25 14:30 안녕 `);
+assert.strictEqual(ok1.error, undefined, `정상 입력이 거부됨: ${ok1.error}`);
+assert.strictEqual(ok1.content, '안녕');
+assert.strictEqual(ok1.at, new Date(Y, 7, 25, 14, 30).getTime(), '로컬 시각 계산 불일치');
+
+// 한 자리 월/일/시 허용, 개행 보존
+const ok2 = parseSchedule(`${Y}-8-5 9:05 여러 줄\n메시지`);
+assert.strictEqual(ok2.error, undefined, `한 자리 입력이 거부됨: ${ok2.error}`);
+assert.strictEqual(ok2.content, '여러 줄\n메시지');
+assert.strictEqual(ok2.at, new Date(Y, 7, 5, 9, 5).getTime());
+
+for (const bad of [
+  '', // 인자 없음
+  '내용만 있음',
+  `${Y}-08-25 14:30`, // 메시지 없음
+  `${Y}-08-25 안녕`, // 시각 없음
+  '2020-01-01 00:00 과거다', // 지난 시각
+  `${Y}-02-31 10:00 없는날`, // 롤오버
+  `${Y}-13-01 10:00 없는달`,
+  `${Y}-08-25 25:00 없는시각`,
+]) {
+  assert.ok(parseSchedule(bad).error, `걸러야 하는 입력이 통과됨: ${JSON.stringify(bad)}`);
+}
 
 console.log('셀프테스트 통과');
