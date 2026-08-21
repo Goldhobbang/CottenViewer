@@ -443,18 +443,43 @@ async function resolveTarget(message, prefix) {
 
 // --- 예약 발송 (/특검) ---
 
-const SCHEDULE_USAGE = `\`${COMMAND_SCHEDULE} 2026-08-25 14:30 보낼 내용\` 형식으로 써라.`;
-const SCHEDULE_REGEX = /^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})\s+([\s\S]+)$/;
+const SCHEDULE_USAGE =
+  `\`${COMMAND_SCHEDULE} 2026-08-25 14:30 보낼 내용\`(절대 시각) 또는 ` +
+  `\`${COMMAND_SCHEDULE} 5:30 후 보낼 내용\`(5시간 30분 뒤) 형식으로 써라.`;
+// 절대: 2026-08-25 14:30 내용
+const ABSOLUTE_REGEX = /^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})\s+([\s\S]+)$/;
+// 상대: 5:30 후 내용 (시:분 뒤)
+const RELATIVE_REGEX = /^(\d{1,4}):(\d{1,2})\s*후\s+([\s\S]+)$/;
+
+// 내용을 감싼 따옴표는 벗긴다. 사용법 예시를 따라 `"메시지"`로 쓰는 경우가 많다.
+function unquote(text) {
+  const m = /^(["'`“”])([\s\S]+)\1$/.exec(text);
+  return m ? m[2].trim() : text;
+}
 
 // 명령어 뒤 인자를 파싱한다. 성공하면 { at, content }, 실패하면 { error }.
-// 시각은 봇이 도는 PC의 로컬 시간대 기준. 문자열 파싱(new Date("..."))은
+// 절대 시각은 봇이 도는 PC의 로컬 시간대 기준. 문자열 파싱(new Date("..."))은
 // 엔진마다 타임존 해석이 달라서 쓰지 않는다.
 function parseSchedule(raw) {
-  const m = SCHEDULE_REGEX.exec((raw || '').trim());
+  const input = (raw || '').trim();
+
+  const rel = RELATIVE_REGEX.exec(input);
+  if (rel) {
+    const hours = Number(rel[1]);
+    const minutes = Number(rel[2]);
+    const content = unquote(rel[3].trim());
+    if (!content) return { error: `⚠️ 보낼 내용이 없다. ${SCHEDULE_USAGE}` };
+    if (minutes > 59) return { error: '⚠️ 분은 59까지다. `5:30 후` 처럼 써라.' };
+    const delay = (hours * 60 + minutes) * 60_000;
+    if (delay <= 0) return { error: '⚠️ 0분 뒤에 보내라는 건 그냥 지금 말하라는 거다.' };
+    return { at: Date.now() + delay, content };
+  }
+
+  const m = ABSOLUTE_REGEX.exec(input);
   if (!m) return { error: `⚠️ 날짜·시각·내용을 못 알아먹겠다. ${SCHEDULE_USAGE}` };
 
   const [, y, mo, d, hh, mm] = m.map(Number);
-  const content = m[6].trim();
+  const content = unquote(m[6].trim());
   if (!content) return { error: `⚠️ 보낼 내용이 없다. ${SCHEDULE_USAGE}` };
 
   const date = new Date(y, mo - 1, d, hh, mm, 0, 0);
@@ -579,7 +604,10 @@ client.on('messageCreate', async (message) => {
     saveSchedules();
     armSchedule(job);
     return message.reply(
-      sub(message.channel.id, `✅ <t:${Math.floor(job.at / 1000)}:f>에 보낸다.`)
+      sub(
+        message.channel.id,
+        `✅ <t:${Math.floor(job.at / 1000)}:f> (<t:${Math.floor(job.at / 1000)}:R>)에 보낸다.`
+      )
     );
   }
 

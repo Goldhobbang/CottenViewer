@@ -111,6 +111,23 @@ assert.strictEqual(ok2.error, undefined, `한 자리 입력이 거부됨: ${ok2.
 assert.strictEqual(ok2.content, '여러 줄\n메시지');
 assert.strictEqual(ok2.at, new Date(Y, 7, 5, 9, 5).getTime());
 
+// 내용을 감싼 따옴표는 벗긴다
+assert.strictEqual(parseSchedule(`${Y}-08-25 14:30 "안녕"`).content, '안녕');
+
+// 상대 시각: 5:30 후 -> 5시간 30분 뒤
+const rel = parseSchedule('5:30 후 회의 있다');
+assert.strictEqual(rel.error, undefined, `상대 시각이 거부됨: ${rel.error}`);
+assert.strictEqual(rel.content, '회의 있다');
+// Date.now() 호출 시점 차이가 있으니 오차 2초 허용
+assert.ok(
+  Math.abs(rel.at - (Date.now() + (5 * 60 + 30) * 60_000)) < 2000,
+  `상대 시각 계산 불일치: ${rel.at}`
+);
+
+// 공백 없는 "후", 따옴표, 0시간도 허용
+assert.strictEqual(parseSchedule('0:05후 "곧"').content, '곧');
+assert.ok(Math.abs(parseSchedule('0:05 후 x').at - (Date.now() + 5 * 60_000)) < 2000);
+
 for (const bad of [
   '', // 인자 없음
   '내용만 있음',
@@ -120,6 +137,10 @@ for (const bad of [
   `${Y}-02-31 10:00 없는날`, // 롤오버
   `${Y}-13-01 10:00 없는달`,
   `${Y}-08-25 25:00 없는시각`,
+  '5:30 후', // 상대 시각인데 내용 없음
+  '0:00 후 지금이잖아', // 0분 뒤
+  '5:99 후 분초과',
+  '5:30 뒤에 보내줘', // '후' 아님
 ]) {
   assert.ok(parseSchedule(bad).error, `걸러야 하는 입력이 통과됨: ${JSON.stringify(bad)}`);
 }
