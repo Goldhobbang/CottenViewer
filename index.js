@@ -482,6 +482,11 @@ function parseSchedule(raw) {
   const content = unquote(m[6].trim());
   if (!content) return { error: `⚠️ 보낼 내용이 없다. ${SCHEDULE_USAGE}` };
 
+  // 무조건 24시 기준. 00시=자정, 12시=정오, 오전/오후 표기는 안 받는다.
+  if (hh > 23 || mm > 59) {
+    return { error: '⚠️ 시각은 24시 기준 `00:00`~`23:59`다. 자정은 `00:00`, 정오는 `12:00`.' };
+  }
+
   const date = new Date(y, mo - 1, d, hh, mm, 0, 0);
   // 2026-02-31처럼 없는 날짜는 Date가 다음 달로 넘겨버린다. 되돌아온 값으로 검증.
   const rolled =
@@ -497,6 +502,14 @@ function parseSchedule(raw) {
     return { error: '⚠️ 과거로는 못 보낸다. 타임머신 구해오면 해주지.' };
   }
   return { at: date.getTime(), content };
+}
+
+// "2026-08-23 20:00" 형태로 고정 출력. Discord 타임스탬프(<t:...>)는 보는
+// 사람 로케일에 따라 "오후 8:00"으로 나오므로 24시 표기를 직접 만든다.
+function formatWhen(at) {
+  const d = new Date(at);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 let schedules = []; // { id, channelId, at, content }
@@ -606,7 +619,7 @@ client.on('messageCreate', async (message) => {
     return message.reply(
       sub(
         message.channel.id,
-        `✅ <t:${Math.floor(job.at / 1000)}:f> (<t:${Math.floor(job.at / 1000)}:R>)에 보낸다.`
+        `✅ ${formatWhen(job.at)} (<t:${Math.floor(job.at / 1000)}:R>)에 보낸다.`
       )
     );
   }
@@ -707,6 +720,7 @@ module.exports = {
   COMMAND_EXPLAIN,
   COMMAND_SCHEDULE,
   parseSchedule,
+  formatWhen,
   respondToNoru,
   findNoruMention,
   findNoruUserMention,

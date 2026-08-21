@@ -8,6 +8,7 @@ const {
   SYSTEM_PROMPT,
   ACTIVE_PROMPT,
   parseSchedule,
+  formatWhen,
 } = require('./index');
 
 const T = '숙제 다 했어';
@@ -113,6 +114,20 @@ assert.strictEqual(ok2.at, new Date(Y, 7, 5, 9, 5).getTime());
 
 // 내용을 감싼 따옴표는 벗긴다
 assert.strictEqual(parseSchedule(`${Y}-08-25 14:30 "안녕"`).content, '안녕');
+
+// 무조건 24시 기준: 00시=자정, 12시=정오, 20시=오후 8시
+for (const [hh, expected] of [['00', 0], ['12', 12], ['20', 20], ['23', 23]]) {
+  const out = parseSchedule(`${Y}-08-25 ${hh}:00 x`);
+  assert.strictEqual(new Date(out.at).getHours(), expected, `${hh}시 해석 불일치`);
+}
+// 24시 이상은 거부 (24:00을 자정으로 넘겨주지 않는다)
+for (const hh of ['24', '25', '99']) {
+  assert.ok(parseSchedule(`${Y}-08-25 ${hh}:00 x`).error, `${hh}시가 통과됨`);
+}
+
+// 확인 응답은 로케일과 무관하게 24시 표기로 고정
+assert.strictEqual(formatWhen(new Date(2026, 7, 23, 20, 0).getTime()), '2026-08-23 20:00');
+assert.strictEqual(formatWhen(new Date(2026, 7, 23, 0, 5).getTime()), '2026-08-23 00:05');
 
 // 상대 시각: 5:30 후 -> 5시간 30분 뒤
 const rel = parseSchedule('5:30 후 회의 있다');
