@@ -101,33 +101,39 @@ const future = new Date();
 future.setFullYear(future.getFullYear() + 1);
 const Y = future.getFullYear();
 
+// 기대값은 KST 기준. Date.UTC로 조립해 -9시간 하면 테스트를 돌리는 PC의
+// 시간대와 무관하게 같은 값이 나온다.
+const KST = (y, mo, d, hh, mm) => Date.UTC(y, mo - 1, d, hh, mm) - 9 * 3600_000;
+
 const ok1 = parseSchedule(` ${Y}-08-25 14:30 안녕 `);
 assert.strictEqual(ok1.error, undefined, `정상 입력이 거부됨: ${ok1.error}`);
 assert.strictEqual(ok1.content, '안녕');
-assert.strictEqual(ok1.at, new Date(Y, 7, 25, 14, 30).getTime(), '로컬 시각 계산 불일치');
+assert.strictEqual(ok1.at, KST(Y, 8, 25, 14, 30), 'KST 시각 계산 불일치');
 
 // 한 자리 월/일/시 허용, 개행 보존
 const ok2 = parseSchedule(`${Y}-8-5 9:05 여러 줄\n메시지`);
 assert.strictEqual(ok2.error, undefined, `한 자리 입력이 거부됨: ${ok2.error}`);
 assert.strictEqual(ok2.content, '여러 줄\n메시지');
-assert.strictEqual(ok2.at, new Date(Y, 7, 5, 9, 5).getTime());
+assert.strictEqual(ok2.at, KST(Y, 8, 5, 9, 5));
 
 // 내용을 감싼 따옴표는 벗긴다
 assert.strictEqual(parseSchedule(`${Y}-08-25 14:30 "안녕"`).content, '안녕');
 
-// 무조건 24시 기준: 00시=자정, 12시=정오, 20시=오후 8시
-for (const [hh, expected] of [['00', 0], ['12', 12], ['20', 20], ['23', 23]]) {
-  const out = parseSchedule(`${Y}-08-25 ${hh}:00 x`);
-  assert.strictEqual(new Date(out.at).getHours(), expected, `${hh}시 해석 불일치`);
+// 무조건 24시 기준: 00시=자정, 12시=정오, 20시=오후 8시 (모두 KST)
+for (const hh of [0, 12, 20, 23]) {
+  const out = parseSchedule(`${Y}-08-25 ${String(hh).padStart(2, '0')}:00 x`);
+  assert.strictEqual(out.at, KST(Y, 8, 25, hh, 0), `${hh}시 해석 불일치`);
 }
 // 24시 이상은 거부 (24:00을 자정으로 넘겨주지 않는다)
 for (const hh of ['24', '25', '99']) {
   assert.ok(parseSchedule(`${Y}-08-25 ${hh}:00 x`).error, `${hh}시가 통과됨`);
 }
 
-// 확인 응답은 로케일과 무관하게 24시 표기로 고정
-assert.strictEqual(formatWhen(new Date(2026, 7, 23, 20, 0).getTime()), '2026-08-23 20:00');
-assert.strictEqual(formatWhen(new Date(2026, 7, 23, 0, 5).getTime()), '2026-08-23 00:05');
+// 확인 응답은 서버 시간대·로케일과 무관하게 KST 24시 표기로 고정
+assert.strictEqual(formatWhen(KST(2026, 8, 23, 20, 0)), '2026-08-23 20:00');
+assert.strictEqual(formatWhen(KST(2026, 8, 23, 0, 5)), '2026-08-23 00:05');
+// 파싱한 값을 되돌리면 입력한 문자열과 같아야 한다 (왕복 검증)
+assert.strictEqual(formatWhen(parseSchedule(`${Y}-08-23 01:03 x`).at), `${Y}-08-23 01:03`);
 
 // 상대 시각: 5:30 후 -> 5시간 30분 뒤
 const rel = parseSchedule('5:30 후 회의 있다');

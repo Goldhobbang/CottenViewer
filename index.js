@@ -451,6 +451,11 @@ const ABSOLUTE_REGEX = /^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})\s+([\s\
 // 상대: 5:30 후 내용 (시:분 뒤)
 const RELATIVE_REGEX = /^(\d{1,4}):(\d{1,2})\s*후\s+([\s\S]+)$/;
 
+// 입력·출력 모두 한국 시간(KST) 기준으로 고정한다. 호스팅 서버의 시간대가
+// UTC나 미국 시간이면 서버 로컬 기준으로 계산했을 때 몇 시간씩 밀린다.
+// KST는 서머타임이 없어서 고정 오프셋으로 충분하다.
+const KST_OFFSET_MS = 9 * 60 * 60_000;
+
 // 내용을 감싼 따옴표는 벗긴다. 사용법 예시를 따라 `"메시지"`로 쓰는 경우가 많다.
 function unquote(text) {
   const m = /^(["'`“”])([\s\S]+)\1$/.exec(text);
@@ -458,8 +463,8 @@ function unquote(text) {
 }
 
 // 명령어 뒤 인자를 파싱한다. 성공하면 { at, content }, 실패하면 { error }.
-// 절대 시각은 봇이 도는 PC의 로컬 시간대 기준. 문자열 파싱(new Date("..."))은
-// 엔진마다 타임존 해석이 달라서 쓰지 않는다.
+// 절대 시각은 KST 기준. 문자열 파싱(new Date("..."))은 엔진마다 타임존
+// 해석이 달라서 쓰지 않고, UTC로 만든 뒤 오프셋을 빼서 계산한다.
 function parseSchedule(raw) {
   const input = (raw || '').trim();
 
@@ -487,29 +492,31 @@ function parseSchedule(raw) {
     return { error: '⚠️ 시각은 24시 기준 `00:00`~`23:59`다. 자정은 `00:00`, 정오는 `12:00`.' };
   }
 
-  const date = new Date(y, mo - 1, d, hh, mm, 0, 0);
+  // UTC로 조립해서 KST 오프셋을 빼면 서버 시간대와 무관하게 같은 값이 나온다.
+  const utc = new Date(Date.UTC(y, mo - 1, d, hh, mm, 0, 0));
   // 2026-02-31처럼 없는 날짜는 Date가 다음 달로 넘겨버린다. 되돌아온 값으로 검증.
   const rolled =
-    date.getFullYear() !== y ||
-    date.getMonth() !== mo - 1 ||
-    date.getDate() !== d ||
-    date.getHours() !== hh ||
-    date.getMinutes() !== mm;
-  if (Number.isNaN(date.getTime()) || rolled) {
+    utc.getUTCFullYear() !== y ||
+    utc.getUTCMonth() !== mo - 1 ||
+    utc.getUTCDate() !== d;
+  if (Number.isNaN(utc.getTime()) || rolled) {
     return { error: '⚠️ 세상에 없는 날짜다. 달력 좀 보고 와라.' };
   }
-  if (date.getTime() <= Date.now()) {
+
+  const at = utc.getTime() - KST_OFFSET_MS;
+  if (at <= Date.now()) {
     return { error: '⚠️ 과거로는 못 보낸다. 타임머신 구해오면 해주지.' };
   }
-  return { at: date.getTime(), content };
+  return { at, content };
 }
 
-// "2026-08-23 20:00" 형태로 고정 출력. Discord 타임스탬프(<t:...>)는 보는
+// "2026-08-23 20:00 (KST)" 형태로 고정 출력. Discord 타임스탬프(<t:...>)는 보는
 // 사람 로케일에 따라 "오후 8:00"으로 나오므로 24시 표기를 직접 만든다.
+// 서버 시간대와 무관하게 KST로 찍기 위해 오프셋을 더한 뒤 UTC 값을 읽는다.
 function formatWhen(at) {
-  const d = new Date(at);
+  const d = new Date(at + KST_OFFSET_MS);
   const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
 }
 
 let schedules = []; // { id, channelId, at, content }
@@ -619,7 +626,7 @@ client.on('messageCreate', async (message) => {
     return message.reply(
       sub(
         message.channel.id,
-        `✅ ${formatWhen(job.at)} (<t:${Math.floor(job.at / 1000)}:R>)에 보낸다.`
+        `✅ ${formatWhen(job.at)} KST (<t:${Math.floor(job.at / 1000)}:R>)에 보낸다.`
       )
     );
   }
