@@ -9,6 +9,10 @@ const {
   ACTIVE_PROMPT,
   parseSchedule,
   formatWhen,
+  scheduleModal,
+  listComponents,
+  jobLine,
+  canManage,
 } = require('./index');
 
 const T = '숙제 다 했어';
@@ -165,5 +169,44 @@ for (const bad of [
 ]) {
   assert.ok(parseSchedule(bad).error, `걸러야 하는 입력이 통과됨: ${JSON.stringify(bad)}`);
 }
+
+// --- 예약 인터랙티브 UI 조립 (네트워크 호출 없음) ---
+
+const job = { id: '123', channelId: 'c', authorId: 'u', at: KST(Y, 8, 25, 14, 30), content: '회의 있다' };
+
+// 수정 모달은 기존 값이 채워져 있어야 한다
+const modal = scheduleModal('sched:save:123', '예약 수정', job).toJSON();
+assert.strictEqual(modal.custom_id, 'sched:save:123');
+const inputs = modal.components.map((c) => c.component);
+assert.deepStrictEqual(
+  inputs.map((i) => i.custom_id),
+  ['when', 'content'],
+  '모달 입력 칸 구성이 바뀌었다'
+);
+assert.strictEqual(inputs[0].value, `${Y}-08-25 14:30`, '모달에 기존 시각이 안 채워짐');
+assert.strictEqual(inputs[1].value, '회의 있다', '모달에 기존 내용이 안 채워짐');
+// 새 예약 모달은 빈 칸 (setValue('')는 payload에서 빠져도 정상)
+const blank = scheduleModal('sched:create', '예약 만들기').toJSON();
+assert.ok(!blank.components.some((c) => c.component.value), '새 예약 모달에 값이 들어있다');
+
+// 모달에 넣은 값을 그대로 되돌려도 같은 시각으로 파싱된다 (수정 왕복)
+assert.strictEqual(parseSchedule(`${inputs[0].value} ${inputs[1].value}`).at, job.at);
+
+// 선택 메뉴는 25개까지만 담는다 (Discord 상한)
+const many = Array.from({ length: 30 }, (_, i) => ({ ...job, id: String(i) }));
+const rows = listComponents(many).map((r) => r.toJSON());
+assert.strictEqual(rows[0].components[0].options.length, 25, '선택 메뉴 상한 처리 안 됨');
+assert.strictEqual(rows[0].components[0].custom_id, 'sched:pick');
+assert.strictEqual(rows[1].components[0].custom_id, 'sched:new');
+
+// 수정·취소는 예약을 만든 사람만. authorId 없는 옛 예약은 막지 않는다
+assert.ok(canManage(job, 'u'), '본인이 못 건드림');
+assert.ok(!canManage(job, 'other'), '남의 예약을 건드릴 수 있다');
+assert.ok(canManage({ ...job, authorId: undefined }, 'anyone'), '옛 예약이 잠겨버림');
+
+// 목록 줄에는 KST 24시 표기와 내용 미리보기가 함께 나온다
+const line = jobLine(job, 0);
+assert.ok(line.startsWith('1. '), `목록 번호 없음: ${line}`);
+assert.ok(line.includes(`${Y}-08-25 14:30`) && line.includes('회의 있다'), `목록 줄 내용 부족: ${line}`);
 
 console.log('셀프테스트 통과');

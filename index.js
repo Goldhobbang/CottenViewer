@@ -1,7 +1,18 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
-const { Client, GatewayIntentBits, Partials } = require('discord.js');
+const {
+  Client,
+  GatewayIntentBits,
+  Partials,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ModalBuilder,
+  TextInputStyle,
+  StringSelectMenuBuilder,
+  MessageFlags,
+} = require('discord.js');
 const OpenAI = require('openai');
 
 // 이 채널에서는 모든 봇 메시지를 작은 글씨(subtext)로 보낸다.
@@ -11,6 +22,7 @@ const sub = (channelId, content) => (SUBTEXT_CHANNELS.has(channelId) ? '-# ' + c
 const COMMAND_DETECT = '/ㄱㅌ'; // 판정만, 한줄평 없음
 const COMMAND_EXPLAIN = '/ㅅㅁ'; // 판정 없이 한줄평(설명)만
 const COMMAND_SCHEDULE = '/특검'; // 지정 시각에 메시지 예약 발송
+const COMMAND_SCHEDULE_LIST = '/특검목록'; // 이 채널의 예약 목록 + 수정/취소
 const SCHEDULE_FILE = path.join(__dirname, 'schedules.json');
 
 // "노루" 감지 시 판정 로직 없이 아래 5개 티어 중 하나로만 응답한다.
@@ -519,7 +531,10 @@ function formatWhen(at) {
   return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
 }
 
-let schedules = []; // { id, channelId, at, content }
+let schedules = []; // { id, channelId, authorId, at, content }
+// 예약 id -> setTimeout 핸들. 취소·수정 때 기존 타이머를 꺼야 하므로 따로 둔다
+// (job에 넣으면 schedules.json에 Timeout 객체가 직렬화된다).
+const timers = new Map();
 
 function saveSchedules() {
   try {
@@ -529,12 +544,21 @@ function saveSchedules() {
   }
 }
 
-function dropSchedule(job) {
-  schedules = schedules.filter((s) => s.id !== job.id);
+function findSchedule(id) {
+  return schedules.find((s) => s.id === id);
+}
+
+// 목록·타이머에서 함께 지운다. 발송 완료와 사용자 취소 모두 이 경로를 쓴다.
+function dropSchedule(id) {
+  clearTimeout(timers.get(id));
+  timers.delete(id);
+  schedules = schedules.filter((s) => s.id !== id);
   saveSchedules();
 }
 
 async function fireSchedule(job) {
+  // 타이머가 돌기 직전에 취소됐을 수 있다.
+  if (!findSchedule(job.id)) return;
   try {
     const channel = await client.channels.fetch(job.channelId);
     // allowedMentions 비움: 멘션 권한 없는 유저가 봇을 시켜 @everyone을
@@ -546,15 +570,27 @@ async function fireSchedule(job) {
   } catch (error) {
     console.error(`예약 발송 실패 (채널 ${job.channelId}):`, error);
   } finally {
-    dropSchedule(job);
+    dropSchedule(job.id);
   }
 }
 
 const MAX_TIMEOUT = 2_147_483_647; // setTimeout 상한(~24.8일). 넘으면 쪼개서 다시 건다.
 function armSchedule(job) {
   const delay = job.at - Date.now();
-  if (delay > MAX_TIMEOUT) return setTimeout(() => armSchedule(job), MAX_TIMEOUT);
-  return setTimeout(() => fireSchedule(job), Math.max(0, delay));
+  const timer =
+    delay > MAX_TIMEOUT
+      ? setTimeout(() => armSchedule(job), MAX_TIMEOUT)
+      : setTimeout(() => fireSchedule(job), Math.max(0, delay));
+  timers.set(job.id, timer);
+  return timer;
+}
+
+// 예약을 목록에 넣고 타이머를 건다. 같은 id가 이미 있으면(수정) 갈아끼운다.
+function addSchedule(job) {
+  clearTimeout(timers.get(job.id));
+  schedules = schedules.filter((s) => s.id !== job.id).concat(job);
+  saveSchedules();
+  armSchedule(job);
 }
 
 // 봇이 꺼져 있던 동안 지난 예약은 버린다. 며칠 만에 켰을 때 옛 메시지가
@@ -575,6 +611,176 @@ function restoreSchedules() {
   schedules.forEach(armSchedule);
   console.log(`⏰ 예약 ${schedules.length}건 복원${expired ? `, 지난 ${expired}건 폐기` : ''}`);
 }
+
+// --- 예약 인터랙티브 UI (버튼 / 선택 메뉴 / 모달) ---
+
+// customId 규칙: "sched:<동작>" 또는 "sched:<동작>:<예약 id>"
+const WHEN_PLACEHOLDER = '2026-08-25 14:30  또는  5:30 후';
+
+function scheduleModal(customId, title, job) {
+  return new ModalBuilder()
+    .setCustomId(customId)
+    .setTitle(title)
+    .addLabelComponents(
+      (label) =>
+        label
+          .setLabel('언제 보낼까')
+          .setDescription('24시 기준 KST. "5:30 후"처럼 상대 시각도 된다.')
+          .setTextInputComponent((input) =>
+            input
+              .setCustomId('when')
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder(WHEN_PLACEHOLDER)
+              .setValue(job ? formatWhen(job.at) : '')
+              .setRequired(true)
+          ),
+      (label) =>
+        label.setLabel('보낼 내용').setTextInputComponent((input) =>
+          input
+            .setCustomId('content')
+            .setStyle(TextInputStyle.Paragraph)
+            .setValue(job ? job.content : '')
+            .setRequired(true)
+        )
+    );
+}
+
+// 모달의 두 칸을 합쳐서 텍스트 명령과 똑같은 파서를 태운다.
+function parseModal(interaction) {
+  const when = interaction.fields.getTextInputValue('when').trim();
+  const content = interaction.fields.getTextInputValue('content').trim();
+  return parseSchedule(`${when} ${content}`);
+}
+
+function jobLine(job, index) {
+  const preview = job.content.replace(/\s+/g, ' ').slice(0, 60);
+  return `${index + 1}. \`${formatWhen(job.at)}\` KST (<t:${Math.floor(job.at / 1000)}:R>) — ${preview}`;
+}
+
+// 이 채널의 예약만, 시간 순으로. 다른 채널 예약까지 보여주면 목록이 산만해진다.
+function channelSchedules(channelId) {
+  return schedules.filter((s) => s.channelId === channelId).sort((a, b) => a.at - b.at);
+}
+
+function listComponents(jobs) {
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId('sched:pick')
+    .setPlaceholder('수정·취소할 예약 고르기')
+    // 선택 메뉴는 25개까지만 담긴다.
+    .addOptions(
+      jobs.slice(0, 25).map((job) => ({
+        label: `${formatWhen(job.at)} KST`,
+        description: job.content.replace(/\s+/g, ' ').slice(0, 100),
+        value: job.id,
+      }))
+    );
+  const addButton = new ButtonBuilder()
+    .setCustomId('sched:new')
+    .setLabel('새 예약')
+    .setStyle(ButtonStyle.Success);
+  return [
+    new ActionRowBuilder().addComponents(menu),
+    new ActionRowBuilder().addComponents(addButton),
+  ];
+}
+
+function newScheduleButton() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('sched:new')
+      .setLabel('예약 만들기')
+      .setStyle(ButtonStyle.Primary)
+  );
+}
+
+// 예약을 만든 사람만 수정·취소할 수 있다. authorId가 없는 옛 예약은 막지 않는다.
+function canManage(job, userId) {
+  return !job.authorId || job.authorId === userId;
+}
+
+const ephemeral = (content) => ({ content, flags: MessageFlags.Ephemeral });
+
+async function handleScheduleInteraction(interaction) {
+  const [, action, id] = interaction.customId.split(':');
+
+  if (action === 'new') {
+    return interaction.showModal(scheduleModal('sched:create', '예약 만들기'));
+  }
+
+  if (action === 'create') {
+    const parsed = parseModal(interaction);
+    if (parsed.error) return interaction.reply(ephemeral(parsed.error));
+    const job = {
+      id: interaction.id,
+      channelId: interaction.channelId,
+      authorId: interaction.user.id,
+      at: parsed.at,
+      content: parsed.content,
+    };
+    addSchedule(job);
+    return interaction.reply(
+      ephemeral(`✅ ${formatWhen(job.at)} KST (<t:${Math.floor(job.at / 1000)}:R>)에 보낸다.`)
+    );
+  }
+
+  // 아래 동작들은 모두 대상 예약이 아직 살아있어야 한다.
+  const targetId = action === 'pick' ? interaction.values[0] : id;
+  const job = findSchedule(targetId);
+  if (!job) return interaction.reply(ephemeral('⚠️ 그 예약은 이미 없다. 목록을 다시 열어라.'));
+  if (!canManage(job, interaction.user.id)) {
+    return interaction.reply(ephemeral('⚠️ 남이 걸어둔 예약은 못 건드린다.'));
+  }
+
+  if (action === 'pick') {
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`sched:edit:${job.id}`)
+        .setLabel('수정')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`sched:cancel:${job.id}`)
+        .setLabel('취소')
+        .setStyle(ButtonStyle.Danger)
+    );
+    return interaction.reply({
+      content: `\`${formatWhen(job.at)}\` KST\n${quote(job.content)}`,
+      components: [row],
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  if (action === 'edit') {
+    return interaction.showModal(scheduleModal(`sched:save:${job.id}`, '예약 수정', job));
+  }
+
+  if (action === 'save') {
+    const parsed = parseModal(interaction);
+    if (parsed.error) return interaction.reply(ephemeral(parsed.error));
+    addSchedule({ ...job, at: parsed.at, content: parsed.content });
+    return interaction.reply(
+      ephemeral(`✏️ ${formatWhen(parsed.at)} KST (<t:${Math.floor(parsed.at / 1000)}:R>)로 바꿨다.`)
+    );
+  }
+
+  if (action === 'cancel') {
+    dropSchedule(job.id);
+    return interaction.reply(ephemeral(`🗑️ \`${formatWhen(job.at)}\` KST 예약을 지웠다.`));
+  }
+  return null;
+}
+
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.customId?.startsWith('sched:')) return;
+  try {
+    await handleScheduleInteraction(interaction);
+  } catch (error) {
+    console.error('예약 인터랙션 처리 실패:', error);
+    // 이미 응답했으면 두 번 답할 수 없다.
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply(ephemeral('⚠️ 처리 중 오류가 났다.')).catch(() => {});
+    }
+  }
+});
 
 client.once('clientReady', () => {
   const extra = ACTIVE_PROMPT.length - SYSTEM_PROMPT.length;
@@ -610,19 +816,43 @@ client.on('messageCreate', async (message) => {
 
   const content = message.content.trim();
 
+  // /특검목록이 /특검으로 먼저 걸리지 않게 긴 명령어를 먼저 본다.
+  if (content === COMMAND_SCHEDULE_LIST) {
+    const jobs = channelSchedules(message.channel.id);
+    if (!jobs.length) {
+      return message.reply({
+        content: sub(message.channel.id, '이 채널에 걸린 예약이 없다.'),
+        components: [newScheduleButton()],
+      });
+    }
+    const header = `⏰ 이 채널의 예약 ${jobs.length}건`;
+    return message.reply({
+      content: sub(message.channel.id, [header, ...jobs.map(jobLine)].join('\n')),
+      components: listComponents(jobs),
+    });
+  }
+
   if (content.startsWith(COMMAND_SCHEDULE)) {
-    const parsed = parseSchedule(content.slice(COMMAND_SCHEDULE.length));
+    const args = content.slice(COMMAND_SCHEDULE.length).trim();
+    // 인자 없이 치면 모달로 받는다. 모달은 인터랙션에서만 열 수 있어서 버튼을 먼저 띄운다.
+    if (!args) {
+      return message.reply({
+        content: sub(message.channel.id, '언제 무슨 말을 보낼지 아래 버튼으로 적어라.'),
+        components: [newScheduleButton()],
+      });
+    }
+
+    const parsed = parseSchedule(args);
     if (parsed.error) return message.reply(sub(message.channel.id, parsed.error));
 
     const job = {
       id: message.id,
       channelId: message.channel.id,
+      authorId: message.author.id,
       at: parsed.at,
       content: parsed.content,
     };
-    schedules.push(job);
-    saveSchedules();
-    armSchedule(job);
+    addSchedule(job);
     return message.reply(
       sub(
         message.channel.id,
@@ -726,8 +956,13 @@ module.exports = {
   COMMAND_DETECT,
   COMMAND_EXPLAIN,
   COMMAND_SCHEDULE,
+  COMMAND_SCHEDULE_LIST,
   parseSchedule,
   formatWhen,
+  scheduleModal,
+  listComponents,
+  jobLine,
+  canManage,
   respondToNoru,
   findNoruMention,
   findNoruUserMention,
