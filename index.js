@@ -25,8 +25,8 @@ const COMMAND_SCHEDULE = '/특검'; // 지정 시각에 메시지 예약 발송
 const COMMAND_SCHEDULE_LIST = '/특검목록'; // 이 채널의 예약 목록 + 수정/취소
 const SCHEDULE_FILE = path.join(__dirname, 'schedules.json');
 
-// "노루" 감지 시 판정 로직 없이 아래 5개 티어 중 하나로만 응답한다.
-// 각 티어가 언제 나가는지는 respondToNoru()의 A~E 분기 참고.
+// "노루" 감지 시 판정 로직 없이 아래 티어 중 하나로만 응답한다.
+// 각 티어가 언제 나가는지는 respondToNoru()의 A~D 분기 참고.
 
 // A) 완성형 노/루가 순서대로(간격 무관) 나온 "정타" 전용.
 const NORU_WARNINGS = [
@@ -67,14 +67,7 @@ const MISMATCH_WARNINGS = [
   '짝도 안 맞는 혼종을 만드느라 눈물겹게 애썼다만, 못 속인다. 그냥 <:nh:1534213172368642118> 써라.',
 ];
 
-// D) 루 역할 토큰이 노 역할 토큰보다 먼저 나오는(순서 반대) 경우.
-const DIRECTION_WARNING = [
-  '거꾸로 써서 내 눈을 속이겠다는 거냐? 순서 뒤집기 꼼수 접고 <:nh:1534213172368642118> 써라.',
-  '문장을 뒤집는다고 네 허접한 잔머리가 숨겨지진 않는다. 당장 <:nh:1534213172368642118> 써라.',
-  '앞뒤 바꾼다고 노루가 사슴이라도 될 줄 알았니? 군말 말고 <:nh:1534213172368642118> 써라.',
-];
-
-// E) 토큰 조합으론 안 잡히지만 한자·이모지, 영어 고정 오타, 유니코드
+// D) 토큰 조합으론 안 잡히지만 한자·이모지, 영어 고정 오타, 유니코드
 // 컨퓨저블 조합 중 하나라도 걸리는 경우.
 const SPECIAL_WARNINGS = [
   '특수문자랑 외계어 뒤에 숨어봐야 내 손바닥 안이다. 헛힘 쓰지 말고 <:nh:1534213172368642118> 써라.',
@@ -169,12 +162,25 @@ const NO_SPELLINGS = ['no', 'nor'];
 const RU_SPELLINGS = ['hu', 'rou', 'roo', 'ru', 'ruu'];
 const NO_CONFUSABLE_REGEXES = NO_SPELLINGS.map(spellingRegex);
 const RU_CONFUSABLE_REGEXES = RU_SPELLINGS.map(spellingRegex);
+// 노루 우회는 두 토큰을 붙여 쓴다. 사이가 벌어지면 그냥 '노'와 '루'가
+// 우연히 순서대로 등장한 평범한 문장이다("노래 듣다가 루틴 깨졌다").
+// 감지 강도 조절 손잡이 — 올리면 '노 오 루'처럼 늘려 쓴 우회를 잡지만
+// 오탐도 같이 는다.
+const MAX_GAP = 2;
+
+// findCombo와 같은 이유로 여기서도 두 철자가 MAX_GAP 이내로 붙어 있어야 한다.
+// 안 그러면 "I have no idea how to run this"처럼 no...ru가 멀리 떨어진
+// 평범한 영어 문장이 전부 걸린다.
 function hasUnicodeConfusable(text) {
   for (const noRe of NO_CONFUSABLE_REGEXES) {
     const m = noRe.exec(text);
     if (!m) continue;
     const rest = text.slice(m.index + m[0].length);
-    if (RU_CONFUSABLE_REGEXES.some((ruRe) => ruRe.test(rest))) return true;
+    const near = RU_CONFUSABLE_REGEXES.some((ruRe) => {
+      const hit = ruRe.exec(rest);
+      return hit && hit.index <= MAX_GAP;
+    });
+    if (near) return true;
   }
   return false;
 }
@@ -206,16 +212,21 @@ function toGlobalRegex(token) {
 const NO_REGEXES = NO_TOKENS.map(toGlobalRegex);
 const RU_REGEXES = RU_TOKENS.map(toGlobalRegex);
 
-// regexesA의 토큰이 먼저 나오고 그 뒤(순서 필수)에 regexesB의 토큰이
-// 나오는 첫 조합을 찾는다. i는 A 쪽 인덱스, j는 B 쪽 인덱스.
+// regexesA의 토큰 바로 뒤(MAX_GAP 글자 이내)에 regexesB의 토큰이 오는 첫
+// 조합을 찾는다. i는 A 쪽 인덱스, j는 B 쪽 인덱스.
 function findCombo(regexesA, regexesB, text) {
   for (let i = 0; i < regexesA.length; i++) {
     regexesA[i].lastIndex = 0;
-    const m = regexesA[i].exec(text);
-    if (!m) continue;
-    for (let j = 0; j < regexesB.length; j++) {
-      regexesB[j].lastIndex = m.index + m[0].length;
-      if (regexesB[j].exec(text)) return { i, j };
+    let m;
+    // 첫 매치만 보면 뒤쪽에 있는 진짜 우회를 놓친다. 전부 훑는다.
+    while ((m = regexesA[i].exec(text))) {
+      const end = m.index + m[0].length;
+      for (let j = 0; j < regexesB.length; j++) {
+        regexesB[j].lastIndex = end;
+        const hit = regexesB[j].exec(text);
+        if (hit && hit.index - end <= MAX_GAP) return { i, j };
+      }
+      if (m[0].length === 0) regexesA[i].lastIndex++; // 길이 0 매치 무한루프 방지
     }
   }
   return null;
@@ -241,7 +252,8 @@ function normalizeJamo(text) {
     .replace(/[ᅡ-ᅵ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x1161 + 0x314f));
 }
 
-// A~E 분기(if/elif). 매칭되면 응답 문자열을, 안 되면 null을 돌려준다.
+// A~D 분기(if/elif). 매칭되면 응답 문자열을, 안 되면 null을 돌려준다.
+// 순서가 반대인 경우(루 -> 노)는 감지하지 않는다. 오탐만 늘렸다.
 function respondToNoru(rawText) {
   const text = normalizeJamo(stripUrls(rawText));
   if (hasNohyunwoo(text)) return pick(NAME_WARNING);
@@ -256,11 +268,8 @@ function respondToNoru(rawText) {
     return pick(MISMATCH_WARNINGS); // C: 서로 다른 우회 섞음
   }
 
-  const reversed = findCombo(RU_REGEXES, NO_REGEXES, text); // 루 -> 노
-  if (reversed) return pick(DIRECTION_WARNING); // D: 순서 반대
-
   if (hasNoruHanja(text) || hasNoruEnglish(text) || hasLeetSpeak(text) || hasUnicodeConfusable(text)) {
-    return pick(SPECIAL_WARNINGS); // E: 사전 설정 우회기법
+    return pick(SPECIAL_WARNINGS); // D: 사전 설정 우회기법
   }
   return null;
 }
@@ -971,7 +980,6 @@ module.exports = {
   NORU_WARNINGS,
   UNICODE_WARNING,
   MISMATCH_WARNINGS,
-  DIRECTION_WARNING,
   SPECIAL_WARNINGS,
   MENTION_WARNING,
   EMOJI_WARNING,

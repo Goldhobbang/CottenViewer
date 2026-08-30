@@ -13,7 +13,34 @@ const {
   listComponents,
   jobLine,
   canManage,
+  respondToNoru,
 } = require('./index');
+
+// --- 노루 감지: 우회는 잡고 평범한 문장은 놔둔다 ---
+
+// 토큰이 붙어 있는 진짜 우회
+for (const evasion of ['노루', '노 루', 'ㄴㅗㄹㅜ', '놀후', 'norhu', '노루야', 'ㄴㄹ', 'no ru']) {
+  assert.ok(respondToNoru(evasion), `우회를 못 잡음: ${evasion}`);
+}
+
+// '노'와 '루'가 멀리 떨어져 우연히 순서만 맞은 평범한 문장 (MAX_GAP으로 걸러짐)
+for (const innocent of [
+  '노래 듣다가 루틴 깨졌다',
+  '노트북 사고 루머 들었다',
+  'I have no idea how to run this',
+  'should shut it down now',
+  'null 체크 후 리턴',
+  '놀러 가서 후회 없다',
+  'L사이즈 주문했는데 乙',
+  'github에서 pull 받아라',
+]) {
+  assert.strictEqual(respondToNoru(innocent), null, `오탐: ${innocent}`);
+}
+
+// 순서가 반대인 경우(루 -> 노)는 더 이상 감지하지 않는다
+for (const reversed of ['루틴대로 노력했다', '후반전 노잼', '루피 좋아하는 노진구']) {
+  assert.strictEqual(respondToNoru(reversed), null, `역방향이 아직 걸림: ${reversed}`);
+}
 
 const T = '숙제 다 했어';
 
