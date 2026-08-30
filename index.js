@@ -23,6 +23,8 @@ const COMMAND_DETECT = '/ㄱㅌ'; // 판정만, 한줄평 없음
 const COMMAND_EXPLAIN = '/ㅅㅁ'; // 판정 없이 한줄평(설명)만
 const COMMAND_SCHEDULE = '/특검'; // 지정 시각에 메시지 예약 발송
 const COMMAND_SCHEDULE_LIST = '/특검목록'; // 이 채널의 예약 목록 + 수정/취소
+const COMMAND_WHIP = '/때찌'; // WHIP_MESSAGE 출력 전용 커맨드
+const WHIP_MESSAGE = '아야';
 const SCHEDULE_FILE = path.join(__dirname, 'schedules.json');
 
 // "노루" 감지 시 판정 로직 없이 아래 티어 중 하나로만 응답한다.
@@ -827,6 +829,11 @@ client.on('messageCreate', async (message) => {
 
   const content = message.content.trim();
 
+  // /때찌는 항상 고정 문구를 출력한다.
+  if (content === COMMAND_WHIP) {
+    return message.reply(sub(message.channel.id, WHIP_MESSAGE));
+  }
+
   // /특검목록이 /특검으로 먼저 걸리지 않게 긴 명령어를 먼저 본다.
   if (content === COMMAND_SCHEDULE_LIST) {
     const jobs = channelSchedules(message.channel.id);
@@ -968,6 +975,8 @@ module.exports = {
   COMMAND_EXPLAIN,
   COMMAND_SCHEDULE,
   COMMAND_SCHEDULE_LIST,
+  COMMAND_WHIP,
+  WHIP_MESSAGE,
   parseSchedule,
   formatWhen,
   scheduleModal,
