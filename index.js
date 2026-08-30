@@ -193,7 +193,7 @@ const NO_TOKENS = [
   new RegExp(`${letterClass('n')}ㅗ`),
 ];
 const RU_TOKENS = [
-  '루', 'ㄹ', 'ru', 'fn', '후', '루', 'gn', 'hu', 'ㄹ', '乙', '己',
+  '루', 'ㄹ', 'ru', 'fn', /(?<=놀)후/, '루', /(?<=놀)gn/, /(?<=놀)hu/, 'ㄹ', '乙', '己',
   new RegExp(`${letterClass('r')}ㅜ`),
   new RegExp(`${letterClass('r')}${letterClass('o')}ㅜ`),
   new RegExp(`${letterClass('r')}${letterClass('u')}ㅜ`),
@@ -204,12 +204,14 @@ const RU_FAMILY = ['exact', 'korean', 'latin', 'latin', 'korean', 'symbol', 'lat
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
-// 문자열 토큰과 정규식 토큰을 전부 대소문자 무관 + 반복탐색 정규식으로 통일.
-function toGlobalRegex(token) {
+// 문자열 토큰과 정규식 토큰을 전부 반복탐색 정규식으로 통일. 기본은 대소문자
+// 무관('gi')이지만, caseSensitive가 참이면 대소문자를 가린다('g').
+function toGlobalRegex(token, caseSensitive = false) {
   const src = token instanceof RegExp ? token.source : escapeRegExp(token);
-  return new RegExp(src, 'gi');
+  return new RegExp(src, caseSensitive ? 'g' : 'gi');
 }
-const NO_REGEXES = NO_TOKENS.map(toGlobalRegex);
+// 'L' 토큰(index 10)은 대문자 L일 때만 인식한다. 소문자 l은 미감지.
+const NO_REGEXES = NO_TOKENS.map((t, i) => toGlobalRegex(t, i === 10));
 const RU_REGEXES = RU_TOKENS.map(toGlobalRegex);
 
 // regexesA의 토큰 바로 뒤(MAX_GAP 글자 이내)에 regexesB의 토큰이 오는 첫
