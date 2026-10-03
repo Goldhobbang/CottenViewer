@@ -14,6 +14,15 @@ const {
   jobLine,
   canManage,
   respondToNoru,
+  COMMAND_NORU_TOGGLE,
+  NORU_TOGGLE_OFF_MESSAGES,
+  NORU_TOGGLE_ON_MESSAGES,
+  CONFIG_FILE,
+  loadConfig,
+  saveConfig,
+  isNoruDetectionEnabled,
+  setNoruDetectionEnabled,
+  toggleNoruDetection,
 } = require('./index');
 
 // --- 노루 감지: 우회는 잡고 평범한 문장은 놔둔다 ---
@@ -235,5 +244,32 @@ assert.ok(canManage({ ...job, authorId: undefined }, 'anyone'), '옛 예약이 �
 const line = jobLine(job, 0);
 assert.ok(line.startsWith('1. '), `목록 번호 없음: ${line}`);
 assert.ok(line.includes(`${Y}-08-25 14:30`) && line.includes('회의 있다'), `목록 줄 내용 부족: ${line}`);
+
+// --- 노루 글귀 탐지 토글 (/노루인권운동) ---
+
+assert.strictEqual(COMMAND_NORU_TOGGLE, '/노루인권운동', '커맨드 이름 불일치');
+assert.ok(NORU_TOGGLE_OFF_MESSAGES.length > 0, '토글 OFF 메시지 비어있음');
+assert.ok(NORU_TOGGLE_ON_MESSAGES.length > 0, '토글 ON 메시지 비어있음');
+
+const originalState = isNoruDetectionEnabled();
+try {
+  setNoruDetectionEnabled(true);
+  assert.strictEqual(isNoruDetectionEnabled(), true, '탐지 활성화 설정 실패');
+
+  const toggledOff = toggleNoruDetection();
+  assert.strictEqual(toggledOff, false, '토글 OFF 실패');
+  assert.strictEqual(isNoruDetectionEnabled(), false, '탐지 비활성화 확인 실패');
+
+  const toggledOn = toggleNoruDetection();
+  assert.strictEqual(toggledOn, true, '토글 ON 실패');
+  assert.strictEqual(isNoruDetectionEnabled(), true, '탐지 재활성화 확인 실패');
+
+  // 파일 저장 및 재로드 확인
+  setNoruDetectionEnabled(false);
+  loadConfig();
+  assert.strictEqual(isNoruDetectionEnabled(), false, 'config.json 저장/로드 실패');
+} finally {
+  setNoruDetectionEnabled(originalState);
+}
 
 console.log('셀프테스트 통과');

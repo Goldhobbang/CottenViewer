@@ -25,7 +25,9 @@ const COMMAND_SCHEDULE = '/특검'; // 지정 시각에 메시지 예약 발송
 const COMMAND_SCHEDULE_LIST = '/특검목록'; // 이 채널의 예약 목록 + 수정/취소
 const COMMAND_WHIP = '/때찌'; // WHIP_MESSAGE 출력 전용 커맨드
 const WHIP_MESSAGE = '아야';
+const COMMAND_NORU_TOGGLE = '/노루인권운동'; // 노루 글귀 탐지 토글 커맨드
 const SCHEDULE_FILE = path.join(__dirname, 'schedules.json');
+const CONFIG_FILE = path.join(__dirname, 'config.json');
 
 // "노루" 감지 시 판정 로직 없이 아래 티어 중 하나로만 응답한다.
 // 각 티어가 언제 나가는지는 respondToNoru()의 A~D 분기 참고.
@@ -97,6 +99,19 @@ const NAME_WARNING = [
   '언제부터 실명을 부른다고 안걸린다고 생각한거지? 노현우 대신 <:nh:1534213172368642118> 써라.',
   '진짜 노루를 부른다고 내가 안볼 줄 안거냐? <:nh:1534213172368642118> 써라.',
   '너 나름대로 100마나 써서 노현우를 소환했겠지만 나에겐 다 똑같은 노루다. 순순히 <:nh:1534213172368642118> 써라.',
+];
+
+// /노루인권운동 토글 응답 메시지
+const NORU_TOGGLE_OFF_MESSAGES = [
+  '노루인권운동 승인이다. 당분간 노루 풀어놔도 눈감아준다.',
+  '노루인권운동 개시. 감시망 내렸으니까 어디 실컷 울어봐라.',
+  '그래, 노루도 숨 좀 쉬어야지. 노루 글귀 감시 일시 정지다.',
+];
+
+const NORU_TOGGLE_ON_MESSAGES = [
+  '노루인권운동은 진압됐다. 지금부터 노루 쓰는 놈들 다 잡아낸다.',
+  '노루인권운동 끝났다. 이제 다시 노루 보이기만 해봐라, <:nh:1534213172368642118> 로 혼쭐내줄 테니까.',
+  '평화는 여기까지다. 노루 글귀 감시망 다시 가동한다.',
 ];
 
 // 노 -> 현 -> 우 순서 그대로(간격 무관) 나오는지만 본다. 순서 반대는 대상 아님.
@@ -330,6 +345,46 @@ async function findNoruMention(message) {
     findNoruChannelMention(message)
   );
 }
+
+// --- 노루 감지 설정 관리 (config.json) ---
+let botConfig = {
+  noruDetection: true,
+};
+
+function loadConfig() {
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      const data = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+      botConfig = { ...botConfig, ...data };
+    }
+  } catch (error) {
+    console.error('설정 파일을 읽지 못했다. 기본값으로 시작한다:', error);
+  }
+}
+
+function saveConfig() {
+  try {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(botConfig, null, 2), 'utf8');
+  } catch (error) {
+    console.error('설정 저장 실패:', error);
+  }
+}
+
+function isNoruDetectionEnabled() {
+  return botConfig.noruDetection !== false;
+}
+
+function setNoruDetectionEnabled(enabled) {
+  botConfig.noruDetection = Boolean(enabled);
+  saveConfig();
+  return botConfig.noruDetection;
+}
+
+function toggleNoruDetection() {
+  return setNoruDetectionEnabled(!isNoruDetectionEnabled());
+}
+
+loadConfig();
 
 // 로컬 Ollama. 봇을 켜기 전에 Ollama가 실행 중이어야 한다.
 const MODEL = 'exaone3.5:7.8b';
@@ -799,10 +854,13 @@ client.once('clientReady', () => {
   const extra = ACTIVE_PROMPT.length - SYSTEM_PROMPT.length;
   console.log(`🤖 ${client.user.tag} - 목화밭 감시 준비 완료!`);
   console.log(extra > 0 ? `📖 knowledge.md 적용됨 (+${extra}자)` : '📖 knowledge.md 비어있음');
+  loadConfig();
+  console.log(`🦌 노루 감지: ${isNoruDetectionEnabled() ? '활성화' : '비활성화'}`);
   restoreSchedules();
 });
 
 async function checkNoruAndReply(message) {
+  if (!isNoruDetectionEnabled()) return null;
   if (message.author.bot) return;
 
   const noruReply = respondToNoru(message.content);
@@ -825,9 +883,16 @@ async function checkNoruAndReply(message) {
 }
 
 client.on('messageCreate', async (message) => {
-  if (await checkNoruAndReply(message)) return;
-
   const content = message.content.trim();
+
+  // /노루인권운동 커맨드는 '노루'가 포함되어 있으므로 checkNoruAndReply 이전에 처리한다.
+  if (content === COMMAND_NORU_TOGGLE) {
+    const enabled = toggleNoruDetection();
+    const replyText = enabled ? pick(NORU_TOGGLE_ON_MESSAGES) : pick(NORU_TOGGLE_OFF_MESSAGES);
+    return message.reply(sub(message.channel.id, replyText));
+  }
+
+  if (await checkNoruAndReply(message)) return;
 
   // /때찌는 항상 고정 문구를 출력한다.
   if (content === COMMAND_WHIP) {
@@ -996,4 +1061,13 @@ module.exports = {
   EMOJI_WARNING,
   NH_EMOJI,
   NAME_WARNING,
+  COMMAND_NORU_TOGGLE,
+  NORU_TOGGLE_OFF_MESSAGES,
+  NORU_TOGGLE_ON_MESSAGES,
+  CONFIG_FILE,
+  loadConfig,
+  saveConfig,
+  isNoruDetectionEnabled,
+  setNoruDetectionEnabled,
+  toggleNoruDetection,
 };
